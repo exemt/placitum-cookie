@@ -25,7 +25,12 @@ COPY internal ./internal
 # с красными тестами подписи ставить нельзя тем более.
 RUN go test ./...
 
-RUN go build -trimpath -ldflags="-s -w" -o /out/cookie ./cmd/inspector
+# Сборка в бинарь: версия и ревизия видны в журнале старта и в кадре
+# присутствия, а не только в метках образа.
+ARG VERSION=dev
+ARG REVISION=unknown
+RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.revision=${REVISION}" -o /out/cookie ./cmd/inspector && \
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.revision=${REVISION}" -o /out/cookie-probe ./cmd/probe
 
 FROM alpine:3.22
 
@@ -42,7 +47,7 @@ LABEL org.opencontainers.image.title="placitum/cookie" \
 
 WORKDIR /app
 
-COPY --from=build /out/cookie /usr/local/bin/
+COPY --from=build /out/cookie /out/cookie-probe /usr/local/bin/
 COPY profiles ./profiles
 COPY inspector.conf ./inspector.conf
 
@@ -60,4 +65,8 @@ ENV NATS_URL=nats://nats:4222 \
 
 # CMD, а не ENTRYPOINT: как у остальных инспекторов, и `docker run <образ> sh`
 # остаётся рабочим способом заглянуть внутрь.
+# Проба идёт тем же путём, что запрос модуля: шина, подписка, профили,
+# воркеры. Профиль default, вердикт любой -- здоровье, а не решение.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["cookie-probe", "--quiet", "--timeout", "1s"]
 CMD ["cookie"]
