@@ -33,12 +33,12 @@ import (
 	"github.com/exemt/placitum-cookie/internal/audit"
 	"github.com/exemt/placitum-cookie/internal/body"
 	"github.com/exemt/placitum-cookie/internal/config"
-	"github.com/exemt/placitum-cookie/internal/dataset"
 	"github.com/exemt/placitum-cookie/internal/livelist"
-	"github.com/exemt/placitum-shared/netinfo"
 	"github.com/exemt/placitum-cookie/internal/policy"
 	"github.com/exemt/placitum-cookie/internal/protocol"
 	"github.com/exemt/placitum-cookie/internal/queue"
+	"github.com/exemt/placitum-shared/dataset"
+	"github.com/exemt/placitum-shared/netinfo"
 )
 
 const (

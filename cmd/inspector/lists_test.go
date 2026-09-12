@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/exemt/placitum-shared/netinfo"
 	"github.com/exemt/placitum-cookie/internal/policy"
+	"github.com/exemt/placitum-shared/netinfo"
 )
 
 /* --- заглушки ------------------------------------------------------------ */
