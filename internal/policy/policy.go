@@ -40,6 +40,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/exemt/placitum-cookie/internal/overload"
 	"github.com/exemt/placitum-cookie/internal/protocol"
 )
 
@@ -192,6 +193,10 @@ type Rule struct {
 	// Writes -- записи в живые наборы: исполняет сам инспектор, на провод
 	// модулю они не едут.
 	Writes []Write
+	// Overload -- строка перегрузки: срабатывает не по совпадению запроса, а
+	// по заполнению очереди не ниже At (internal/overload).
+	Overload bool
+	At       int
 }
 
 /*
@@ -372,7 +377,7 @@ func (p *Profile) Collect(ev *Evaluator, t *Target) Outcome {
 	for i := range p.Rules {
 		r := &p.Rules[i]
 
-		if r.Phase != "" && r.Phase != t.Phase {
+		if r.Overload || (r.Phase != "" && r.Phase != t.Phase) {
 			continue
 		}
 
@@ -500,6 +505,9 @@ type fileRule struct {
 	// если объявлена не одна кука.
 	On     string `yaml:"on"`
 	Cookie string `yaml:"cookie"`
+	// At -- только у on: overload: порог заполнения очереди в процентах, не
+	// назван -- край (internal/overload).
+	At *int `yaml:"at"`
 	// Операция правила: выдать либо снять. Имя объявленной куки.
 	Issue string `yaml:"issue"`
 	Drop  string `yaml:"drop"`
@@ -584,6 +592,19 @@ func parseRule(at string, index int, fr fileRule, conds map[string]*Condition,
 	// его значило бы заставлять придумывать слова тому, у кого их нет.
 	if rule.Name == "" {
 		rule.Name = fmt.Sprintf("rule-%d", index+1)
+	}
+
+	/*
+	 * Строка перегрузки срабатывает по заполнению очереди, а не по запросу и
+	 * не по куке: ни пути, ни фазы, ни куки, ни условия у неё нет -- на снятом
+	 * запросе не ходим ни в обменник, ни в зеркало. Действия -- те же.
+	 */
+	if strings.TrimSpace(fr.On) == overload.On {
+		return parseOverloadRule(at, fr, rule, p)
+	}
+
+	if fr.At != nil {
+		return rule, fmt.Errorf("%s: at is only for on: %s", at, overload.On)
 	}
 
 	/*
@@ -1228,6 +1249,76 @@ func Names(profiles map[string]*Profile) []string {
 	}
 
 	sort.Strings(out)
+
+	return out
+}
+
+// parseOverloadRule -- строка перегрузки: порог и действия, больше ничего.
+func parseOverloadRule(at string, fr fileRule, rule Rule, p *Profile) (Rule, error) {
+	if err := overload.Check(fr.At); err != nil {
+		return rule, fmt.Errorf("%s: %w", at, err)
+	}
+
+	if strings.TrimSpace(fr.Match.PathPrefix) != "" || len(fr.Match.Suffixes) > 0 ||
+		fr.Match.Static || len(fr.Match.Methods) > 0 ||
+		strings.TrimSpace(fr.Phase) != "" || len(fr.Status) > 0 ||
+		strings.TrimSpace(fr.Cookie) != "" || strings.TrimSpace(fr.Issue) != "" ||
+		strings.TrimSpace(fr.Drop) != "" || strings.TrimSpace(fr.If) != "" ||
+		strings.TrimSpace(fr.Unless) != "" {
+		return rule, fmt.Errorf("%s: on: %s takes only at and actions", at, overload.On)
+	}
+
+	if len(fr.Actions) == 0 {
+		return rule, fmt.Errorf("%s: on: %s without actions does nothing", at, overload.On)
+	}
+
+	rule.Overload = true
+	rule.At = overload.At(fr.At)
+
+	for j, fa := range fr.Actions {
+		where := fmt.Sprintf("%s.actions[%d]", at, j)
+
+		if strings.TrimSpace(fa.List) != "" {
+			w, err := parseWrite(where, fa, &rule, p)
+			if err != nil {
+				return rule, err
+			}
+
+			rule.Writes = append(rule.Writes, w)
+
+			continue
+		}
+
+		action, err := parseAction(where, fa)
+		if err != nil {
+			return rule, err
+		}
+
+		rule.Actions = append(rule.Actions, Ask{Action: action})
+	}
+
+	return rule, nil
+}
+
+/*
+ * CollectOverload -- строки перегрузки: fill -- заполнение очереди при
+ * постановке запроса, shed -- запрос снят по полной очереди
+ * (internal/overload). Куки у строки нет, выдавать и снимать ей нечего.
+ */
+func (p *Profile) CollectOverload(fill int, shed bool) Outcome {
+	var out Outcome
+
+	for i := range p.Rules {
+		r := &p.Rules[i]
+
+		if !r.Overload || !overload.Fires(r.At, fill, shed) {
+			continue
+		}
+
+		out.Actions = append(out.Actions, r.Actions...)
+		out.Writes = append(out.Writes, r.Writes...)
+		out.Rules = append(out.Rules, r.Name)
+	}
 
 	return out
 }

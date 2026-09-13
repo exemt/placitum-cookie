@@ -140,18 +140,23 @@ func (h *handler) evaluate(t *queue.Task, budget time.Duration, shed string) {
 	defer h.recoverInto(t.Reply, t.Req.RID)
 
 	if shed != "" {
+		reply := protocol.ShedReply(t.Req, shed)
+		det := audit.Details{Engine: map[string]any{"shed": shed}}
+
+		asks := h.overloadOnShed(t, shed, reply, det)
+
 		h.log.Warn("shed", "rid", t.Req.RID, "reason", shed,
-			"budget_ms", budget.Milliseconds())
-		h.send(t.Reply, protocol.ShedReply(t.Req, shed), t.Req, audit.Details{})
+			"budget_ms", budget.Milliseconds(), "asks", asks)
+		h.send(t.Reply, reply, t.Req, det)
 
 		return
 	}
 
-	reply, det := h.inspect(t.Req, budget)
+	reply, det := h.inspect(t.Req, t.Fill, budget)
 	h.send(t.Reply, reply, t.Req, det)
 }
 
-func (h *handler) inspect(req *protocol.Request, budget time.Duration) (*protocol.Reply, audit.Details) {
+func (h *handler) inspect(req *protocol.Request, fill int, budget time.Duration) (*protocol.Reply, audit.Details) {
 	snap := h.store.Current()
 
 	/*
@@ -227,6 +232,15 @@ func (h *handler) inspect(req *protocol.Request, budget time.Duration) (*protoco
 	}
 
 	out := p.Collect(ev, target)
+
+	// Строки перегрузки -- только на фазе запроса: запрос встал в очередь не
+	// ниже их порога.
+	if req.Phase == protocol.PhaseRequest {
+		more := p.CollectOverload(fill, false)
+		out.Actions = append(out.Actions, more.Actions...)
+		out.Writes = append(out.Writes, more.Writes...)
+		out.Rules = append(out.Rules, more.Rules...)
+	}
 
 	engine["rules"] = out.Rules
 
@@ -593,4 +607,44 @@ func (h *handler) recoverInto(subject, rid string) {
 
 	h.send(subject, protocol.FallbackReply(rid, h.cfg.Name, codeInternalError),
 		nil, audit.Details{})
+}
+
+/*
+ * overloadOnShed -- строки перегрузки на снятом по полной очереди запросе:
+ * срабатывают все, каков бы ни был порог, и только на фазе запроса
+ * (internal/overload). Просьбы едут рядом с error, модуль исполнит свои
+ * глаголы; записи в наборы публикует сам инспектор. Бюджета у снятого
+ * запроса нет: кодер ограничен своим таймаутом.
+ */
+func (h *handler) overloadOnShed(t *queue.Task, shed string, reply *protocol.Reply,
+	det audit.Details) int {
+
+	if shed != queue.ReasonQueueLimit || t.Req.Phase != protocol.PhaseRequest {
+		return 0
+	}
+
+	p, ok := h.store.Current().Profile(t.Req.Route.Profile)
+	if !ok || p.Mode == policy.ModeOff {
+		return 0
+	}
+
+	out := p.CollectOverload(t.Fill, true)
+
+	if len(out.Rules) == 0 {
+		return 0
+	}
+
+	det.Engine["rules"] = out.Rules
+
+	if err := h.publish(context.Background(), out.Writes, nil, t.Req); err != nil {
+		h.log.Error("geo unavailable for a list write", "rid", t.Req.RID,
+			"profile", p.Name, "error", err.Error())
+
+		det.Engine["geo"] = err.Error()
+	}
+
+	actions, _ := expand(out.Actions, nil)
+	reply.Actions = actions
+
+	return len(actions)
 }
