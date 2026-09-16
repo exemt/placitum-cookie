@@ -1,0 +1,5 @@
+# The default profile. It is empty on purpose: without declarations the inspector issues and drops
+# nothing. It must exist, because a generation without it is rejected as a whole.
+mode: enforce
+cookies: []
+rules: []

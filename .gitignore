@@ -1,0 +1,6 @@
+/cookie
+/cookie-probe
+/inspector
+/profiles.applied/
+*.hmac
+.env
