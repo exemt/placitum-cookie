@@ -177,7 +177,7 @@ message budget; a silent coder means `error` with `COOKIE_GEO_UNAVAILABLE`.
 | `COOKIE_PROFILE_OFF` | the profile has `mode: off` |
 | `COOKIE_UNKNOWN_PROFILE` | the route names a profile the inspector does not have |
 | `COOKIE_HEADERS_UNAVAILABLE` | the route does not capture request headers |
-| `COOKIE_STORE_ERROR` | the exchange did not return an object that was there |
+| `COOKIE_STORE_ERROR` | the buffer did not return an object that was there |
 | `COOKIE_SECRET_MISSING` | the cookie is signed, but the process has no key |
 | `COOKIE_ISSUE_FAILED` | the value could not be built: too long, no random bytes |
 | `COOKIE_GEO_UNAVAILABLE` | a row writes a network or a system, and the coder is silent |

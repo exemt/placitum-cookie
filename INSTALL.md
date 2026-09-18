@@ -12,8 +12,8 @@ the configuration. Usually `placitum-core` installs it.
 | --- | --- | --- |
 | NATS | yes | the queue, audit, log, profile generations |
 | Signing key | if cookies are signed | HMAC of the value; without a key a profile with `sign: hmac` answers `error` |
-| Exchange Redis | yes | request headers: without `Cookie` there is nothing to read |
-| Internal Redis | for set writes | the mirror of keeper sets; without it the exchange is used |
+| Buffer Redis | yes | request headers: without `Cookie` there is nothing to read |
+| Internal Redis | for set writes | the mirror of keeper sets; without it the buffer is used |
 | `keeper` | for set writes | keeps the content of live sets |
 | `geo` | for `write: net`, `net_all`, `asn` | announcements and system composition |
 | Controller | yes | sends profiles as generations |
@@ -39,7 +39,7 @@ Change the key together with the profile, not alone.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `NATS_URL` | `nats://127.0.0.1:4222` | bus |
-| `REDIS_URL` | from `inspector.conf` | exchange: request headers and query string |
+| `REDIS_URL` | from `inspector.conf` | buffer: request headers and query string |
 | `REDIS_INTERNAL_URL` | from `inspector.conf` | internal Redis: the mirror of keeper sets |
 | `WAF_COOKIE_SUBJECT` | `waf.req.cookie` | subscription; must match `subject=` in the inspector declaration |
 | `WAF_COOKIE_NAME` | `cookie` | name in the inspector registry and the presence frame |
