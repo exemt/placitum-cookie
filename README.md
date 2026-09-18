@@ -165,8 +165,8 @@ An action can be a write instead of a request: `list` with `ttl` (and `write`, `
 
 `write: cookie` is what the set of a node is usually built for: a `type=string` set, almost always
 with `hash=md5` so that cookie values do not sit in shared memory in clear text. `op: remove` deletes
-the record. Announcements and systems come from the geo coder (`WAF_COOKIE_GEO_ADDR`) within the
-message budget; a silent coder means `error` with `COOKIE_GEO_UNAVAILABLE`.
+the record. Announcements and systems come from the network directory (`WAF_COOKIE_GEO_ADDR`) within the
+message budget; a silent network directory means `error` with `COOKIE_GEO_UNAVAILABLE`.
 
 ## Reason codes
 
@@ -180,7 +180,7 @@ message budget; a silent coder means `error` with `COOKIE_GEO_UNAVAILABLE`.
 | `COOKIE_STORE_ERROR` | the buffer did not return an object that was there |
 | `COOKIE_SECRET_MISSING` | the cookie is signed, but the process has no key |
 | `COOKIE_ISSUE_FAILED` | the value could not be built: too long, no random bytes |
-| `COOKIE_GEO_UNAVAILABLE` | a row writes a network or a system, and the coder is silent |
+| `COOKIE_GEO_UNAVAILABLE` | a row writes a network or a system, and the network directory is silent |
 | `COOKIE_QUEUE_LIMIT`, `COOKIE_DEADLINE_EXCEEDED` | overload: the queue is full or the budget is gone |
 
 What it needs and all settings are in [INSTALL.md](INSTALL.md).

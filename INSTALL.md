@@ -49,8 +49,8 @@ Change the key together with the profile, not alone.
 | `WAF_COOKIE_RELOAD_EVERY` | `1s` | how often to check the profile directory |
 | `WAF_COOKIE_SECRET_FILE` | empty | file with the signing key |
 | `WAF_COOKIE_SECRET` | empty | the key as a variable, when there is no file |
-| `WAF_COOKIE_GEO_ADDR` | empty | geo coder (`host:port`) for network and system writes |
-| `WAF_COOKIE_GEO_TIMEOUT`, `WAF_COOKIE_GEO_NEG_MAX` | `500ms`, `0` | coder wait within the message budget and negative cache limit |
+| `WAF_COOKIE_GEO_ADDR` | empty | network directory (`host:port`) for network and system writes |
+| `WAF_COOKIE_GEO_TIMEOUT`, `WAF_COOKIE_GEO_NEG_MAX` | `500ms`, `0` | network directory wait within the message budget and negative cache limit |
 | `WAF_COOKIE_CONF` | `inspector.conf` in the working directory, then `/app/inspector.conf` | queue and Redis settings |
 | `WAF_COOKIE_WORKERS` | number of CPUs | workers |
 | `WAF_COOKIE_QUEUE_DEPTH`, `WAF_COOKIE_QUEUE_FULL`, `WAF_COOKIE_QUEUE_EXPAND` | `256`, `drop`, `off` | queue and overflow behaviour; the same through `inspector.conf` |

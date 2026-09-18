@@ -44,12 +44,12 @@ openssl rand -hex 32 > secrets/cookie.hmac
 | `WAF_COOKIE_NAME` | `cookie` | имя в реестре инспекторов и в кадре присутствия |
 | `WAF_COOKIE_QUEUE` | имя | очередь шины |
 | `WAF_COOKIE_PROFILES` | `./profiles`; в образе `/app/profiles` | профили; поколение контроллера их перекрывает |
-| `WAF_COOKIE_DATA` | `<профили>.applied`; в образе `/var/lib/waf/cookie` | куда раскатка кладёт применённое поколение |
+| `WAF_COOKIE_DATA` | `<профили>.applied`; в образе `/var/lib/waf/cookie` | куда сохраняется применённое поколение |
 | `WAF_COOKIE_RELOAD_EVERY` | `1s` | как часто проверять каталог профилей |
 | `WAF_COOKIE_SECRET_FILE` | пусто | файл с ключом подписи |
 | `WAF_COOKIE_SECRET` | пусто | ключ переменной, если файла нет |
-| `WAF_COOKIE_GEO_ADDR` | пусто | кодер гео (`host:port`) для записей сети и системы |
-| `WAF_COOKIE_GEO_TIMEOUT`, `WAF_COOKIE_GEO_NEG_MAX` | `500ms`, `0` | ожидание кодера в бюджете сообщения и потолок отрицательного кэша |
+| `WAF_COOKIE_GEO_ADDR` | пусто | справочник сетей (`host:port`) для записей сети и системы |
+| `WAF_COOKIE_GEO_TIMEOUT`, `WAF_COOKIE_GEO_NEG_MAX` | `500ms`, `0` | ожидание справочника сетей в бюджете сообщения и предел отрицательного кэша |
 | `WAF_COOKIE_CONF` | `inspector.conf` в рабочем каталоге, затем `/app/inspector.conf` | очередь и адреса Redis |
 | `WAF_COOKIE_WORKERS` | число ядер | воркеры |
 | `WAF_COOKIE_QUEUE_DEPTH`, `WAF_COOKIE_QUEUE_FULL`, `WAF_COOKIE_QUEUE_EXPAND` | `256`, `drop`, `off` | очередь и поведение при переполнении; то же через `inspector.conf` |
