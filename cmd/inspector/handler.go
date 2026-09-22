@@ -378,8 +378,12 @@ func expand(asks []policy.Ask, values map[string]seen) ([]protocol.Action, []str
 		if action.Marker != "" && strings.ContainsRune(action.Marker, '{') {
 			v := values[ask.Cookie]
 
+			// {value} is the value the cookie was issued with, {cookie} the whole string the
+			// client carries (value, number, time and signature), {name} the cookie name.
+			// {tag} is the old name of {value} and stays for profiles written with it.
 			marker := strings.NewReplacer(
-				"{value}", v.Value,
+				"{cookie}", v.Value,
+				"{value}", v.Tag,
 				"{tag}", v.Tag,
 				"{name}", ask.Cookie,
 			).Replace(action.Marker)

@@ -7,7 +7,7 @@ live set and tells the neighbours about it. It checks nothing and blocks nobody:
 by the issued cookie, such as the local layer on the node, neighbour actions or the counter.
 
 Ad traffic shows it best. A client arrives by a link with `utm_source=yandex-direct`; the inspector
-gives them a signed cookie labelled with the source, writes the value to a live set and marks the
+gives them a signed cookie whose value is the source, writes the cookie to a live set and marks the
 record `src:yandex-direct`. The campaign shows up in the log without a single trip to the
 application, and the node recognises the client by the set without the bus or the inspector.
 
@@ -67,9 +67,9 @@ cookies:                 # declarations: what the cookie is
     sign: hmac           # hmac (default) | none
     value:
       from: $arg_utm_source  # operand: $arg_, $http_, $cookie_, $waf_request_args.<name>
-      default: direct        # label when there is no source
+      default: direct        # the value when the request has none; alone it is a constant
       random: 8              # random tail in bytes; 0 means none
-      max_len: 64            # label limit before the value is built
+      max_len: 64            # value limit; longer is cut
 
 rules:
   - name: first-touch    # the name lives in the log and the audit
@@ -81,7 +81,7 @@ rules:
     issue: waf_src       # operation: issue
     actions:
       - do: mark
-        marker: "src:{tag}"   # substitutions: {tag}, {value}, {name}
+        marker: "src:{value}" # substitutions: {value}, {cookie} (the whole string), {name}
       - list: ads_clients     # write to a live set
         write: cookie         # addr | net | net_all | asn | cookie
         ttl: 30d
@@ -93,11 +93,11 @@ rules:
     actions:
       - { do: score, value: 20, code: COOKIE_FORGED }
 
-  - name: from-google    # the label of the presented cookie is one of these
+  - name: from-google    # the value of the presented cookie is one of these
     cookie: waf_src
     tags: [google]         # not_tags: none of these
     actions:
-      - { do: mark, marker: "src:{tag}" }
+      - { do: mark, marker: "src:{value}" }
 
   - name: revoked        # the value of the presented cookie is in a dynamic list
     on: present
@@ -125,10 +125,10 @@ There are two operations, `issue` and `drop`, and a rule does one of them. `on: 
 is first touch: only a client without the cookie gets it. A rule without `on:` is last touch: the
 value is rewritten on every matching request.
 
-`tags: [google, yandex]` narrows a rule to the readable half of the value: it fires when the label
-of the presented cookie is one of those named. Only a cookie that exists has a label (`present`,
+`tags: [google, yandex]` narrows a rule by the value: it fires when the value of the presented cookie
+is one of those named (`not_tags`: none of them). Only a cookie that exists has a value (`present`,
 `expired`), so such a rule does not load with `on: absent` or `on: invalid`. The client chooses the
-label of an unsigned cookie, so decide by labels only with `sign: hmac`.
+value of an unsigned cookie, so decide by values only with `sign: hmac`.
 
 `listed` looks the value the client presented up in a dynamic list: the whole value, the same one a
 `write: cookie` puts there. The inspector mirrors such lists over the keeper protocol from the
@@ -148,12 +148,15 @@ placed below it.
 ### Value and signature
 
 ```
-<label>[~<random>][.<time>.<signature>]
+<value>[~<random>][.<time>.<signature>]
 ```
 
-The label is why the cookie exists: the traffic source, the campaign, the test branch. It is
-readable and goes into the record marker, so its alphabet is narrow: anything outside
-`[A-Za-z0-9_-]` becomes an underscore, and the label is cut at `max_len`.
+The value is why the cookie exists: the traffic source, the campaign, the test branch. It comes from
+`value.from` (a request variable) or `value.default` (a constant, or the fallback when the request has
+none); with neither the cookie is only its random number. Rules compare the value (`tags`), markers
+get it as `{value}`, and its alphabet is narrow: anything outside `[A-Za-z0-9_-]` becomes an
+underscore, and the value is cut at `max_len`. The random tail tells apart clients with the same
+value; lists (`write: cookie`, `listed`) hold the whole string, the `{cookie}` of a marker.
 
 The key comes from `WAF_COOKIE_SECRET_FILE` or `WAF_COOKIE_SECRET`, at least 16 bytes, the same for
 every copy. It is derived per cookie name, so the signature of one cookie does not fit another.
