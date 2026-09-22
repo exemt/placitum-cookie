@@ -153,7 +153,6 @@ func (h *handler) inspect(req *protocol.Request, fill int, budget time.Duration)
 		URI:    req.HTTP.URI,
 		States: states,
 		Tags:   tagsOf(values),
-		Values: rawOf(values),
 	}
 
 	if h.mirror != nil {
@@ -187,7 +186,12 @@ func (h *handler) inspect(req *protocol.Request, fill int, budget time.Duration)
 		return protocol.ErrorReply(req, codeStoreError), det()
 	}
 
-	cookies, err := h.apply(&out, values, now, src)
+	cookies, empty, err := h.apply(&out, values, now, src)
+
+	if len(empty) > 0 {
+		engine["no_value"] = empty
+	}
+
 	if err != nil {
 		h.log.Error("cookie not issued", "rid", req.RID, "profile", p.Name,
 			"error", err.Error())
@@ -314,15 +318,21 @@ func (h *handler) stateError(req *protocol.Request, p *policy.Profile, src *sour
 	return protocol.ErrorReply(req, codeIssueFailed)
 }
 
+// apply issues and drops the cookies of the outcome. A cookie whose value the request does not
+// carry (no fallback, no number) is not issued; empty names such cookies.
 func (h *handler) apply(out *policy.Outcome, values map[string]seen, now time.Time,
-	src policy.Source) ([]protocol.Cookie, error) {
-
-	var cookies []protocol.Cookie
+	src policy.Source) (cookies []protocol.Cookie, empty []string, err error) {
 
 	for _, c := range out.Issue {
 		value, tag, err := c.Issue(src, now, h.secret)
+		if errors.Is(err, policy.ErrNoValue) {
+			empty = append(empty, c.Name)
+
+			continue
+		}
+
 		if err != nil {
-			return nil, err
+			return nil, empty, err
 		}
 
 		item := protocol.Cookie{Name: c.Name, Value: value, Path: c.Path}
@@ -343,7 +353,7 @@ func (h *handler) apply(out *policy.Outcome, values map[string]seen, now time.Ti
 		})
 	}
 
-	return cookies, nil
+	return cookies, empty, nil
 }
 
 func (h *handler) publish(ctx context.Context, writes []policy.Write, values map[string]seen,
@@ -353,14 +363,8 @@ func (h *handler) publish(ctx context.Context, writes []policy.Write, values map
 		return nil
 	}
 
-	cookies := make(map[string]string, len(values))
-
-	for name, v := range values {
-		cookies[name] = v.Value
-	}
-
 	return writeLists(ctx, h.resolver, h.lists, h.log, req.RID, req.Conn.ClientIP,
-		writes, cookies)
+		writes, values)
 }
 
 func expand(asks []policy.Ask, values map[string]seen) ([]protocol.Action, []string) {
@@ -414,16 +418,6 @@ func tagsOf(values map[string]seen) map[string]string {
 
 	for name, v := range values {
 		out[name] = v.Tag
-	}
-
-	return out
-}
-
-func rawOf(values map[string]seen) map[string]string {
-	out := make(map[string]string, len(values))
-
-	for name, v := range values {
-		out[name] = v.Value
 	}
 
 	return out

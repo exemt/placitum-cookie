@@ -29,6 +29,7 @@ const (
 	WriteNetAll = "net_all"
 	WriteASN    = "asn"
 	WriteCookie = "cookie"
+	WriteValue  = "value"
 )
 
 const (
@@ -91,6 +92,7 @@ type Rule struct {
 	Cookie   string
 	Tags     []string
 	TagsNot  bool
+	tagSet   map[string]bool
 	Listed   *ListCheck
 	Issue    string
 	Drop     string
@@ -121,14 +123,15 @@ type Profile struct {
 	Rules   []Rule
 }
 
-// Datasets names the dynamic lists the rules look values up in: the mirror keeps them.
+// Datasets names the dynamic lists the rules look values up in: the mirror keeps them. A static
+// list comes with the generation and is not mirrored.
 func (p *Profile) Datasets() []string {
 	seen := map[string]bool{}
 
 	var out []string
 
 	for _, r := range p.Rules {
-		if r.Listed != nil && !seen[r.Listed.List] {
+		if r.Listed != nil && !r.Listed.Static && !seen[r.Listed.List] {
 			seen[r.Listed.List] = true
 			out = append(out, r.Listed.List)
 		}
@@ -207,8 +210,7 @@ type Target struct {
 	URI    string
 	Status int
 	States map[string]string
-	Tags   map[string]string
-	Values map[string]string // the values of the valid cookies the client presented
+	Tags   map[string]string // the values of the valid cookies the client presented
 	Sets   Sets
 }
 
@@ -246,11 +248,11 @@ func (p *Profile) Collect(t *Target) Outcome {
 			continue
 		}
 
-		if len(r.Tags) > 0 && hasString(r.Tags, t.Tags[r.Cookie]) == r.TagsNot {
+		if len(r.Tags) > 0 && r.hasTag(t.Tags[r.Cookie]) == r.TagsNot {
 			continue
 		}
 
-		if r.Listed != nil && t.in(r.Listed, t.Values[r.Cookie], &out) == r.Listed.Not {
+		if r.Listed != nil && t.in(r.Listed, t.Tags[r.Cookie], &out) == r.Listed.Not {
 			continue
 		}
 
@@ -288,6 +290,16 @@ func (p *Profile) Collect(t *Target) Outcome {
 	}
 
 	return out
+}
+
+// hasTag answers whether the value is one of the rule's tags; a long tag list is looked up in a
+// set.
+func (r *Rule) hasTag(v string) bool {
+	if r.tagSet != nil {
+		return r.tagSet[v]
+	}
+
+	return hasString(r.Tags, v)
 }
 
 func hasInt(list []int, v int) bool {
@@ -343,9 +355,10 @@ type fileMatch struct {
 }
 
 type fileListed struct {
-	List string `yaml:"list"`
-	Op   string `yaml:"op"`
-	Hash string `yaml:"hash"`
+	List   string `yaml:"list"`
+	Op     string `yaml:"op"`
+	Hash   string `yaml:"hash"`
+	Static bool   `yaml:"static"`
 }
 
 type fileRule struct {
@@ -582,6 +595,14 @@ func parseRuleCookie(at string, fr fileRule, rule *Rule, p *Profile) error {
 		rule.Tags = append(rule.Tags, tag)
 	}
 
+	if len(rule.Tags) > 8 {
+		rule.tagSet = make(map[string]bool, len(rule.Tags))
+
+		for _, tag := range rule.Tags {
+			rule.tagSet[tag] = true
+		}
+	}
+
 	if len(rule.Tags) > 0 {
 		if rule.Cookie == "" {
 			return fmt.Errorf("%s: %s need cookie: which one", at, key)
@@ -633,14 +654,15 @@ func parseRuleCookie(at string, fr fileRule, rule *Rule, p *Profile) error {
 	return nil
 }
 
-// parseListed reads the list check of a rule: the value of the rule's cookie in a dynamic list, or
-// not in it. The controller prints hash: md5 for a list with hashed content.
+// parseListed reads the list check of a rule: the value of the rule's cookie in a list, or not in
+// it. The controller prints hash: md5 for a list with hashed content and static: true for a list
+// that comes with the generation (see ListsDir).
 func parseListed(at string, fl *fileListed, rule *Rule) error {
 	if fl == nil {
 		return nil
 	}
 
-	l := &ListCheck{List: strings.TrimSpace(fl.List)}
+	l := &ListCheck{List: strings.TrimSpace(fl.List), Static: fl.Static}
 
 	if !counterRe.MatchString(l.List) {
 		return fmt.Errorf("%s: listed.list %q is not a dataset name", at, l.List)
@@ -692,28 +714,28 @@ func parseWrite(at string, fa fileAction, rule *Rule, p *Profile) (Write, error)
 		return w, fmt.Errorf("%s: list %q is not a dataset name", at, w.List)
 	}
 
+	// write: value puts the value of the cookie, write: cookie the whole string the client
+	// carries (value, number, time and signature).
 	switch w.Subject {
 	case WriteAddr, WriteNet, WriteNetAll, WriteASN:
-	case WriteCookie:
+		if w.Cookie != "" {
+			return w, fmt.Errorf("%s: cookie is only for write: %s or %s", at, WriteValue, WriteCookie)
+		}
+	case WriteValue, WriteCookie:
 		if w.Cookie == "" {
 			w.Cookie = rule.Cookie
 		}
 
 		if w.Cookie == "" {
-			return w, fmt.Errorf("%s: write %s needs cookie: whose value to write",
-				at, WriteCookie)
+			return w, fmt.Errorf("%s: write %s needs cookie: which one", at, w.Subject)
 		}
 
 		if _, ok := p.Cookie(w.Cookie); !ok {
 			return w, fmt.Errorf("%s: cookie %q is not declared in cookies", at, w.Cookie)
 		}
 	default:
-		return w, fmt.Errorf("%s: write must be %s, %s, %s, %s or %s, got %q",
-			at, WriteAddr, WriteNet, WriteNetAll, WriteASN, WriteCookie, w.Subject)
-	}
-
-	if w.Cookie != "" && w.Subject != WriteCookie {
-		return w, fmt.Errorf("%s: cookie is only for write: %s", at, WriteCookie)
+		return w, fmt.Errorf("%s: write must be %s, %s, %s, %s, %s or %s, got %q",
+			at, WriteAddr, WriteNet, WriteNetAll, WriteASN, WriteValue, WriteCookie, w.Subject)
 	}
 
 	if strings.TrimSpace(fa.Do) != "" || strings.TrimSpace(fa.To) != "" ||
@@ -1039,6 +1061,10 @@ func LoadDir(dir string) (map[string]*Profile, error) {
 		}
 
 		out[name] = p
+	}
+
+	if err := loadStatic(dir, out); err != nil {
+		return nil, err
 	}
 
 	return out, nil

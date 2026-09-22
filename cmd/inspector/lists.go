@@ -19,7 +19,7 @@ type listWriter interface {
 }
 
 func writeLists(ctx context.Context, geo geoWriter, lists listWriter, log *slog.Logger,
-	rid, addr string, writes []policy.Write, cookies map[string]string) error {
+	rid, addr string, writes []policy.Write, cookies map[string]seen) error {
 
 	var failed error
 
@@ -57,10 +57,15 @@ func writeLists(ctx context.Context, geo geoWriter, lists listWriter, log *slog.
 }
 
 func subjects(ctx context.Context, geo geoWriter, log *slog.Logger, rid, addr string,
-	w policy.Write, cookies map[string]string) ([]string, error) {
+	w policy.Write, cookies map[string]seen) ([]string, error) {
 
-	if w.Subject == policy.WriteCookie {
-		value := cookies[w.Cookie]
+	// write: value puts the value of the cookie, write: cookie the whole string the client carries.
+	if w.Subject == policy.WriteValue || w.Subject == policy.WriteCookie {
+		value := cookies[w.Cookie].Value
+
+		if w.Subject == policy.WriteValue {
+			value = cookies[w.Cookie].Tag
+		}
 
 		if value == "" {
 			log.Debug("list write skipped: no cookie value",

@@ -68,8 +68,11 @@ cookies:                 # declarations: what the cookie is
     value:
       from: $arg_utm_source  # operand: $arg_, $http_, $cookie_, $waf_request_args.<name>
       default: direct        # the value when the request has none; alone it is a constant
-      random: 8              # random tail in bytes; 0 means none
+      random: 0              # a unique number in bytes (default 8); alone it is the value (uid)
       max_len: 64            # value limit; longer is cut
+  - name: uid
+    max_age: 365d
+    value: { random: 8 }     # a number of its own for every client: 16 hex digits
 
 rules:
   - name: first-touch    # the name lives in the log and the audit
@@ -83,7 +86,7 @@ rules:
       - do: mark
         marker: "src:{value}" # substitutions: {value}, {cookie} (the whole string), {name}
       - list: ads_clients     # write to a live set
-        write: cookie         # addr | net | net_all | asn | cookie
+        write: cookie         # value | cookie | addr | net | net_all | asn
         ttl: 30d
         code: COOKIE_ADS
 
@@ -99,11 +102,25 @@ rules:
     actions:
       - { do: mark, marker: "src:{value}" }
 
-  - name: revoked        # the value of the presented cookie is in a dynamic list
+  - name: partner        # the value is in a static list: it comes with the generation
     on: present
     cookie: waf_src
+    listed: { list: partners, op: in, static: true }
+    actions:
+      - { do: mark, marker: "partner:{value}" }
+
+  - name: sign-out       # the number of the client goes to a dynamic list...
+    on: present
+    cookie: uid
+    match: { path_prefix: "/logout" }
+    actions:
+      - { list: revoked, write: value, ttl: 30d }
+
+  - name: revoked        # ...and a cookie with that number is dropped when it comes back
+    on: present
+    cookie: uid
     listed: { list: revoked, op: in }   # op: in | not_in; hash: md5 for a hashed list
-    drop: waf_src
+    drop: uid
 
   - name: logout
     match: { path_prefix: "/logout" }
@@ -130,11 +147,14 @@ is one of those named (`not_tags`: none of them). Only a cookie that exists has 
 `expired`), so such a rule does not load with `on: absent` or `on: invalid`. The client chooses the
 value of an unsigned cookie, so decide by values only with `sign: hmac`.
 
-`listed` looks the value the client presented up in a dynamic list: the whole value, the same one a
-`write: cookie` puts there. The inspector mirrors such lists over the keeper protocol from the
-internal Redis; with `hash: md5` it hashes the value before the lookup. No cookie, or a list the mirror
-has not received yet, make `in` false and `not_in` true: missing data never turns into a match, and
-the `kind=inspector` event notes such a list under `notes`.
+`listed` looks the value of the cookie up in a list: the value, the same one a `write: value` puts
+there. A dynamic list is mirrored over the keeper protocol from the internal Redis. A static list
+(`static: true`) is only compared with and comes with the generation: the manifest names it with the
+sha256 of its body, the inspector reads the body from the internal Redis (`waf.blob.<hex>`), checks the
+hash and keeps it next to the profiles (`profiles/.lists/<name>.txt`, one value per line). A profile
+whose static list is not there does not load. With `hash: md5` the value is hashed before the lookup.
+No value, or a dynamic list the mirror has not received yet, make `in` false and `not_in` true:
+missing data never turns into a match, and the `kind=inspector` event notes such a list under `notes`.
 
 A rule is narrowed only by what it holds itself: `on`, `tags` or `not_tags`, `listed`, `phase`,
 `status` (response codes, with `phase: response`) and `match` (`path_prefix`, `methods`, `suffixes`,
@@ -148,15 +168,19 @@ placed below it.
 ### Value and signature
 
 ```
-<value>[~<random>][.<time>.<signature>]
+<value>[.<time>.<signature>]
+<value>~<random>[.<time>.<signature>]   a value with a number, as a hand-written profile may ask
 ```
 
-The value is why the cookie exists: the traffic source, the campaign, the test branch. It comes from
-`value.from` (a request variable) or `value.default` (a constant, or the fallback when the request has
-none); with neither the cookie is only its random number. Rules compare the value (`tags`), markers
-get it as `{value}`, and its alphabet is narrow: anything outside `[A-Za-z0-9_-]` becomes an
-underscore, and the value is cut at `max_len`. The random tail tells apart clients with the same
-value; lists (`write: cookie`, `listed`) hold the whole string, the `{cookie}` of a marker.
+The value is why the cookie exists: the client, the traffic source, the campaign. It is one of three:
+`value.random` alone, a unique number (uid) of its own for every client; `value.default` alone, a
+constant; or `value.from`, a request variable, with `value.default` as the fallback when the request
+has none. A client whose request has neither gets no cookie, and the `kind=inspector` event names such
+a cookie under `no_value`. Rules compare the value (`tags`, `listed`), markers get it as `{value}`, and
+`write: value` puts it into a list. Its alphabet is narrow: anything outside `[A-Za-z0-9_-]` becomes an
+underscore, and the value is cut at `max_len`. With both a value and a number the value is the part
+before `~`. The whole string, with the time and the signature, is the `{cookie}` of a marker and what
+`write: cookie` puts into a list.
 
 The key comes from `WAF_COOKIE_SECRET_FILE` or `WAF_COOKIE_SECRET`, at least 16 bytes, the same for
 every copy. It is derived per cookie name, so the signature of one cookie does not fit another.
@@ -166,8 +190,9 @@ quietly issuing unsigned cookies. The issue time lives in the signed half, so `r
 
 ### Writes to live sets
 
-An action can be a write instead of a request: `list` with `ttl` (and `write`, `op`, `code`), without
-`to` and `do`. `write` has the four kinds shared by every sender and one of its own:
+An action can be a write instead of a request: `list` with `ttl` (and `write`, `op`, `cookie`, `code`),
+without `to` and `do`. Only a dynamic list is written. `write` has the four kinds shared by every
+sender and two of its own:
 
 | `write` | What goes to the set |
 | --- | --- |
@@ -175,11 +200,14 @@ An action can be a write instead of a request: `list` with `ttl` (and `write`, `
 | `net` | the effective announcement, the narrowest |
 | `net_all` | every announcement covering the address, including wider ones |
 | `asn` | the whole autonomous system |
-| `cookie` | the cookie value: issued on this request or presented by the client |
+| `value` | the value of the cookie, the one `listed` compares |
+| `cookie` | the whole cookie string: value, time and signature, issued on this request or presented by the client |
 
-`write: cookie` is what the set of a node is usually built for: a `type=string` set, almost always
-with `hash=md5` so that cookie values do not sit in shared memory in clear text. `op: remove` deletes
-the record. Announcements and systems come from the network directory (`WAF_COOKIE_GEO_ADDR`) within the
+`cookie:` names the cookie of both; without it the write takes the rule's cookie, and an overload rule,
+which has none, names it. `write: value` feeds the lists the rules of this inspector check. `write:
+cookie` is what the set of a node is usually built for: a `type=string` set, almost always with
+`hash=md5` so that cookie values do not sit in shared memory in clear text. `op: remove` deletes the
+record. Announcements and systems come from the network directory (`WAF_COOKIE_GEO_ADDR`) within the
 message budget; a silent network directory means `error` with `COOKIE_GEO_UNAVAILABLE`.
 
 ## Reason codes

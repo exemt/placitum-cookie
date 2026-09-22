@@ -13,7 +13,7 @@ the configuration. Usually `placitum-core` installs it.
 | NATS | yes | the queue, audit, log, profile generations |
 | Signing key | if cookies are signed | HMAC of the value; without a key a profile with `sign: hmac` answers `error` |
 | Buffer Redis | yes | request headers: without `Cookie` there is nothing to read |
-| Internal Redis | for list checks | the mirror of the dynamic lists rules look cookie values up in; without it the buffer is used |
+| Internal Redis | for list checks | the mirror of the dynamic lists and the bodies of the static lists rules look cookie values up in; without it the buffer is used |
 | `keeper` | for set writes | keeps the content of live sets |
 | `geo` | for `write: net`, `net_all`, `asn` | announcements and system composition |
 | Controller | yes | sends profiles as generations |
@@ -40,7 +40,7 @@ Change the key together with the profile, not alone.
 | --- | --- | --- |
 | `NATS_URL` | `nats://127.0.0.1:4222` | bus |
 | `REDIS_URL` | from `inspector.conf` | buffer: request headers and query string |
-| `REDIS_INTERNAL_URL` | from `inspector.conf` | internal Redis: the mirror of dynamic lists |
+| `REDIS_INTERNAL_URL` | from `inspector.conf` | internal Redis: the mirror of dynamic lists, the bodies of static ones |
 | `WAF_COOKIE_SUBJECT` | `waf.req.cookie` | subscription; must match `subject=` in the inspector declaration |
 | `WAF_COOKIE_NAME` | `cookie` | name in the inspector registry and the presence frame |
 | `WAF_COOKIE_QUEUE` | the name | queue group on the bus |

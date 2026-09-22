@@ -96,8 +96,12 @@ func (c *Cookie) Issue(src Source, now time.Time, key []byte) (value, tag string
 	value = sb.String()
 
 	if value == "" {
-		return "", "", fmt.Errorf("cookie %q: value recipe yields nothing", c.Name)
+		return "", "", ErrNoValue
 	}
+
+	// The value of the cookie as the next request reads it: the number alone when the declaration
+	// has nothing else.
+	tag = tagOf(value)
 
 	if c.Signed() {
 		if len(key) == 0 {
@@ -167,6 +171,10 @@ func (c *Cookie) Read(raw string, now time.Time, key []byte) (state, tag string,
 }
 
 var ErrNoSecret = fmt.Errorf("cookie signing key is not configured")
+
+// ErrNoValue: the request carries no value for the cookie and the declaration has neither a
+// fallback nor a number. It is not a failure: such a client simply gets no cookie.
+var ErrNoValue = fmt.Errorf("cookie value is empty")
 
 func mac(key []byte, name, payload string) string {
 	derived := hmac.New(sha256.New, key)
