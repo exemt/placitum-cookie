@@ -71,18 +71,12 @@ cookies:                 # declarations: what the cookie is
       random: 8              # random tail in bytes; 0 means none
       max_len: 64            # label limit before the value is built
 
-conditions:              # named conditions, the same as in the action inspector
-  - name: from_ads
-    any:
-      - { value: $arg_utm_source, op: eq, text: yandex-direct }
-      - { value: $arg_utm_source, op: eq, text: google }
-
 rules:
   - name: first-touch    # the name lives in the log and the audit
     phase: request       # request | response; empty means both
     on: absent           # cookie state on arrival; empty means any
-    if: from_ads         # a profile condition; unless inverts it
-    match:
+    match:               # every given field must match; empty means any request
+      path_prefix: /catalog
       methods: [GET]
     issue: waf_src       # operation: issue
     actions:
@@ -129,6 +123,11 @@ value is rewritten on every matching request.
 of the presented cookie is one of those named. Only a cookie that exists has a label (`present`,
 `expired`), so such a rule does not load with `on: absent` or `on: invalid`. The client chooses the
 label of an unsigned cookie, so decide by labels only with `sign: hmac`.
+
+A rule is narrowed only by what it holds itself: `on` and `tags`, `phase`, `status` (response codes,
+with `phase: response`) and `match` (`path_prefix`, `methods`, `suffixes`, `static`). A cookie profile
+has no conditions: a profile with `conditions`, `if` or `unless` does not load, because dropping them
+quietly would widen the rules.
 
 Rules accumulate: every matching rule fires, and actions add up in row order. The cookie itself is
 not decided by order: **dropping beats issuing**, so a logout rule never loses to a landing-page rule

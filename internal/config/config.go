@@ -38,9 +38,7 @@ type Config struct {
 
 	HeartbeatEvery time.Duration
 
-	RedisURL     string
-	InternalURL  string
-	InternalFrom string
+	RedisURL string
 
 	GeoAddr    string
 	GeoTimeout time.Duration
@@ -88,7 +86,6 @@ func Load() (*Config, error) {
 	}
 
 	c.RedisURL = exchangeRedis(file)
-	c.InternalURL, c.InternalFrom = internalRedis(c.ConfPath, file, c.RedisURL)
 
 	if q.Max, err = envIntIfSet("WAF_COOKIE_QUEUE_DEPTH", q.Max); err != nil {
 		return nil, err

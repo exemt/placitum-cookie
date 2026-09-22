@@ -13,7 +13,6 @@
 | NATS | да | очередь, аудит, журнал, поколение профилей |
 | Ключ подписи | если куки подписываются | HMAC значения; без ключа профиль с `sign: hmac` отвечает `error` |
 | Redis: буфер | да | заголовки запроса: без `Cookie` читать нечего |
-| Redis: внутренний | при записи в наборы | зеркало наборов keeper; без него берётся буфер |
 | `keeper` | при записи в наборы | ведёт состав живых наборов |
 | `geo` | при `write: net`, `net_all`, `asn` | анонсы и состав системы |
 | Контроллер | да | шлёт профили поколением |
@@ -39,7 +38,6 @@ openssl rand -hex 32 > secrets/cookie.hmac
 | --- | --- | --- |
 | `NATS_URL` | `nats://127.0.0.1:4222` | шина |
 | `REDIS_URL` | из `inspector.conf` | буфер: заголовки и строка запроса |
-| `REDIS_INTERNAL_URL` | из `inspector.conf` | внутренний Redis: зеркало наборов keeper |
 | `WAF_COOKIE_SUBJECT` | `waf.req.cookie` | подписка; должна совпадать с `subject=` в объявлении инспектора |
 | `WAF_COOKIE_NAME` | `cookie` | имя в реестре инспекторов и в кадре присутствия |
 | `WAF_COOKIE_QUEUE` | имя | очередь шины |
@@ -68,11 +66,10 @@ services:
     environment:
       NATS_URL: nats://nats:4222
       REDIS_URL: redis://redis:6379
-      REDIS_INTERNAL_URL: redis://redis-internal:6379
       WAF_COOKIE_SECRET_FILE: /run/secrets/waf_cookie_hmac
       WAF_COOKIE_GEO_ADDR: geo:50051
     secrets: [waf_cookie_hmac]
-    depends_on: [nats, redis, redis-internal]
+    depends_on: [nats, redis]
 
 secrets:
   waf_cookie_hmac:

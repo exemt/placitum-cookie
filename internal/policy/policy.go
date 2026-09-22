@@ -92,8 +92,6 @@ type Rule struct {
 	Tags     []string
 	Issue    string
 	Drop     string
-	Cond     string
-	Negate   bool
 	Actions  []Ask
 	Writes   []Write
 	Overload bool
@@ -115,11 +113,10 @@ type Write struct {
 }
 
 type Profile struct {
-	Name       string
-	Mode       string
-	Conditions map[string]*Condition
-	Cookies    []*Cookie
-	Rules      []Rule
+	Name    string
+	Mode    string
+	Cookies []*Cookie
+	Rules   []Rule
 }
 
 func (p *Profile) Cookie(name string) (*Cookie, bool) {
@@ -140,35 +137,6 @@ func (p *Profile) NeedsSecret() bool {
 	}
 
 	return false
-}
-
-func (p *Profile) Datasets() []string {
-	seen := map[string]bool{}
-
-	var out []string
-
-	for _, name := range sortedKeys(p.Conditions) {
-		for _, cl := range p.Conditions[name].Clauses {
-			if cl.Dataset != "" && !seen[cl.Dataset] {
-				seen[cl.Dataset] = true
-				out = append(out, cl.Dataset)
-			}
-		}
-	}
-
-	return out
-}
-
-func sortedKeys(m map[string]*Condition) []string {
-	out := make([]string, 0, len(m))
-
-	for k := range m {
-		out = append(out, k)
-	}
-
-	sort.Strings(out)
-
-	return out
 }
 
 func (m *Match) Matches(method, uri string) bool {
@@ -232,7 +200,7 @@ type Outcome struct {
 	Rules   []string
 }
 
-func (p *Profile) Collect(ev *Evaluator, t *Target) Outcome {
+func (p *Profile) Collect(t *Target) Outcome {
 	var out Outcome
 
 	issue := map[string]bool{}
@@ -259,14 +227,6 @@ func (p *Profile) Collect(ev *Evaluator, t *Target) Outcome {
 
 		if len(r.Tags) > 0 && !hasString(r.Tags, t.Tags[r.Cookie]) {
 			continue
-		}
-
-		if r.Cond != "" {
-			holds := ev != nil && ev.Holds(r.Cond)
-
-			if holds == r.Negate {
-				continue
-			}
 		}
 
 		if r.Issue != "" && !issue[r.Issue] {
@@ -373,12 +333,16 @@ type fileRule struct {
 	Actions []fileAction `yaml:"actions"`
 }
 
+// Conditions, if and unless are read only to be refused: a cookie profile has none, and a
+// hand-written profile that still carries them must not load with its rules quietly widened.
 type fileProfile struct {
-	Mode       string          `yaml:"mode"`
-	Conditions []fileCondition `yaml:"conditions"`
-	Cookies    []fileCookie    `yaml:"cookies"`
-	Rules      []fileRule      `yaml:"rules"`
+	Mode       string       `yaml:"mode"`
+	Conditions []any        `yaml:"conditions"`
+	Cookies    []fileCookie `yaml:"cookies"`
+	Rules      []fileRule   `yaml:"rules"`
 }
+
+const noConditions = "cookie profiles have no conditions -- narrow a rule with match, status, on and tags"
 
 func Parse(name string, raw []byte) (*Profile, error) {
 	var f fileProfile
@@ -397,12 +361,9 @@ func Parse(name string, raw []byte) (*Profile, error) {
 		return nil, fmt.Errorf("%s: mode must be enforce or off, got %q", name, p.Mode)
 	}
 
-	conds, err := parseConditions(name, f.Conditions)
-	if err != nil {
-		return nil, err
+	if len(f.Conditions) > 0 {
+		return nil, fmt.Errorf("%s: conditions: %s", name, noConditions)
 	}
-
-	p.Conditions = conds
 
 	for i, fc := range f.Cookies {
 		at := fmt.Sprintf("%s: cookies[%d]", name, i)
@@ -422,7 +383,7 @@ func Parse(name string, raw []byte) (*Profile, error) {
 	for i, fr := range f.Rules {
 		at := fmt.Sprintf("%s: rules[%d]", name, i)
 
-		rule, err := parseRule(at, i, fr, conds, p)
+		rule, err := parseRule(at, i, fr, p)
 		if err != nil {
 			return nil, err
 		}
@@ -433,8 +394,7 @@ func Parse(name string, raw []byte) (*Profile, error) {
 	return p, nil
 }
 
-func parseRule(at string, index int, fr fileRule, conds map[string]*Condition,
-	p *Profile) (Rule, error) {
+func parseRule(at string, index int, fr fileRule, p *Profile) (Rule, error) {
 	rule := Rule{
 		Name: strings.TrimSpace(fr.Name),
 		Match: Match{
@@ -455,23 +415,8 @@ func parseRule(at string, index int, fr fileRule, conds map[string]*Condition,
 		return rule, fmt.Errorf("%s: at is only for on: %s", at, overload.On)
 	}
 
-	ifName, unlessName := strings.TrimSpace(fr.If), strings.TrimSpace(fr.Unless)
-
-	if ifName != "" && unlessName != "" {
-		return rule, fmt.Errorf("%s: if and unless together -- pick one", at)
-	}
-
-	rule.Cond = ifName
-	rule.Negate = unlessName != ""
-
-	if rule.Negate {
-		rule.Cond = unlessName
-	}
-
-	if rule.Cond != "" {
-		if _, ok := conds[rule.Cond]; !ok {
-			return rule, fmt.Errorf("%s: condition %q is not declared in conditions", at, rule.Cond)
-		}
+	if strings.TrimSpace(fr.If) != "" || strings.TrimSpace(fr.Unless) != "" {
+		return rule, fmt.Errorf("%s: if/unless: %s", at, noConditions)
 	}
 
 	for _, s := range fr.Match.Suffixes {

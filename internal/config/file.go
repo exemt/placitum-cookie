@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"net/url"
 	"os"
 	"strconv"
@@ -18,15 +17,12 @@ const (
 	QueueExpandAsk = "ask"
 )
 
-const InternalFromExchange = "exchange"
-
 type queueFile struct {
 	Max    *int
 	Full   string
 	Expand string
 
-	RedisURL      string
-	RedisInternal string
+	RedisURL string
 }
 
 func confPath(envName string) string {
@@ -180,10 +176,10 @@ func parseRedisKey(out *queueFile, seen map[string]bool, text string) error {
 		return fmt.Errorf("redis %s must be redis://host:port[/db] or rediss://..., got %q", key, value)
 	}
 
+	// internal is accepted for the shared inspector.conf form and ignored: the cookie inspector
+	// reads no datasets, so it has nothing to mirror from the internal Redis.
 	if key == "url" {
 		out.RedisURL = value
-	} else {
-		out.RedisInternal = value
 	}
 
 	return nil
@@ -204,45 +200,6 @@ func exchangeRedis(file queueFile) string {
 	}
 
 	return file.RedisURL
-}
-
-func internalRedis(path string, file queueFile, exchange string) (string, string) {
-	if v, ok := os.LookupEnv("REDIS_INTERNAL_URL"); ok && strings.TrimSpace(v) != "" {
-		return strings.TrimSpace(v), "REDIS_INTERNAL_URL"
-	}
-
-	if file.RedisInternal != "" {
-		return file.RedisInternal, path
-	}
-
-	if exchange != "" {
-		return exchange, InternalFromExchange
-	}
-
-	return "", ""
-}
-
-func LogInternalRedis(log *slog.Logger, addr, from string) {
-	const hint = "set internal in the redis block of inspector.conf or REDIS_INTERNAL_URL"
-
-	switch from {
-	case "":
-		log.Warn("internal redis is not configured", "detail", hint)
-	case InternalFromExchange:
-		log.Warn("internal redis falls back to the exchange",
-			"url", redactURL(addr), "from", from, "detail", hint)
-	default:
-		log.Info("internal redis", "url", redactURL(addr), "from", from)
-	}
-}
-
-func redactURL(s string) string {
-	u, err := url.Parse(s)
-	if err != nil {
-		return "<unparsable>"
-	}
-
-	return u.Redacted()
 }
 
 func confText(line string) string {

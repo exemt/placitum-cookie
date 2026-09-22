@@ -13,7 +13,6 @@ import (
 	"github.com/exemt/placitum-cookie/internal/audit"
 	"github.com/exemt/placitum-cookie/internal/body"
 	"github.com/exemt/placitum-cookie/internal/config"
-	"github.com/exemt/placitum-cookie/internal/livelist"
 	"github.com/exemt/placitum-cookie/internal/policy"
 	"github.com/exemt/placitum-cookie/internal/protocol"
 	"github.com/exemt/placitum-cookie/internal/queue"
@@ -44,7 +43,6 @@ type handler struct {
 	store    *policy.Store
 	pool     *queue.Pool
 	loader   *body.Loader
-	mirror   *livelist.Mirror
 	lists    *dataset.Publisher
 	resolver *netinfo.Resolver
 	secret   []byte
@@ -147,12 +145,6 @@ func (h *handler) inspect(req *protocol.Request, fill int, budget time.Duration)
 		return h.stateError(req, p, src, engine, err), det()
 	}
 
-	var ev *policy.Evaluator
-
-	if len(p.Conditions) > 0 {
-		ev = policy.NewEvaluator(src, h.mirror, p.Conditions)
-	}
-
 	target := &policy.Target{
 		Phase:  req.Phase,
 		Method: req.HTTP.Method,
@@ -165,7 +157,7 @@ func (h *handler) inspect(req *protocol.Request, fill int, budget time.Duration)
 		target.Status = req.Response.Status
 	}
 
-	out := p.Collect(ev, target)
+	out := p.Collect(target)
 
 	if req.Phase == protocol.PhaseRequest {
 		more := p.CollectOverload(fill, false)
@@ -175,16 +167,6 @@ func (h *handler) inspect(req *protocol.Request, fill int, budget time.Duration)
 	}
 
 	engine["rules"] = out.Rules
-
-	if ev != nil {
-		if len(ev.Evaluated()) > 0 {
-			engine["conditions"] = ev.Evaluated()
-		}
-
-		if len(ev.Notes) > 0 {
-			engine["notes"] = ev.Notes
-		}
-	}
 
 	if src.Fault {
 		h.log.Warn("store failed", "rid", req.RID, "profile", p.Name, "detail", src.Why)
