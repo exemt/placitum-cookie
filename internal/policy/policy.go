@@ -90,6 +90,8 @@ type Rule struct {
 	On       string
 	Cookie   string
 	Tags     []string
+	TagsNot  bool
+	Listed   *ListCheck
 	Issue    string
 	Drop     string
 	Actions  []Ask
@@ -117,6 +119,22 @@ type Profile struct {
 	Mode    string
 	Cookies []*Cookie
 	Rules   []Rule
+}
+
+// Datasets names the dynamic lists the rules look values up in: the mirror keeps them.
+func (p *Profile) Datasets() []string {
+	seen := map[string]bool{}
+
+	var out []string
+
+	for _, r := range p.Rules {
+		if r.Listed != nil && !seen[r.Listed.List] {
+			seen[r.Listed.List] = true
+			out = append(out, r.Listed.List)
+		}
+	}
+
+	return out
 }
 
 func (p *Profile) Cookie(name string) (*Cookie, bool) {
@@ -190,6 +208,8 @@ type Target struct {
 	Status int
 	States map[string]string
 	Tags   map[string]string
+	Values map[string]string // the values of the valid cookies the client presented
+	Sets   Sets
 }
 
 type Outcome struct {
@@ -198,6 +218,7 @@ type Outcome struct {
 	Actions []Ask
 	Writes  []Write
 	Rules   []string
+	Notes   []Note
 }
 
 func (p *Profile) Collect(t *Target) Outcome {
@@ -225,7 +246,11 @@ func (p *Profile) Collect(t *Target) Outcome {
 			continue
 		}
 
-		if len(r.Tags) > 0 && !hasString(r.Tags, t.Tags[r.Cookie]) {
+		if len(r.Tags) > 0 && hasString(r.Tags, t.Tags[r.Cookie]) == r.TagsNot {
+			continue
+		}
+
+		if r.Listed != nil && t.in(r.Listed, t.Values[r.Cookie], &out) == r.Listed.Not {
 			continue
 		}
 
@@ -317,6 +342,12 @@ type fileMatch struct {
 	Methods    []string `yaml:"methods"`
 }
 
+type fileListed struct {
+	List string `yaml:"list"`
+	Op   string `yaml:"op"`
+	Hash string `yaml:"hash"`
+}
+
 type fileRule struct {
 	Name    string       `yaml:"name"`
 	Match   fileMatch    `yaml:"match"`
@@ -325,6 +356,8 @@ type fileRule struct {
 	On      string       `yaml:"on"`
 	Cookie  string       `yaml:"cookie"`
 	Tags    []string     `yaml:"tags"`
+	NotTags []string     `yaml:"not_tags"`
+	Listed  *fileListed  `yaml:"listed"`
 	At      *int         `yaml:"at"`
 	Issue   string       `yaml:"issue"`
 	Drop    string       `yaml:"drop"`
@@ -528,7 +561,18 @@ func parseRuleCookie(at string, fr fileRule, rule *Rule, p *Profile) error {
 		}
 	}
 
-	for _, tag := range fr.Tags {
+	if len(fr.Tags) > 0 && len(fr.NotTags) > 0 {
+		return fmt.Errorf("%s: tags and not_tags together -- pick one", at)
+	}
+
+	tags, key := fr.Tags, "tags"
+
+	if len(fr.NotTags) > 0 {
+		tags, key = fr.NotTags, "not_tags"
+		rule.TagsNot = true
+	}
+
+	for _, tag := range tags {
 		tag = strings.TrimSpace(tag)
 
 		if !tagRe.MatchString(tag) {
@@ -540,12 +584,16 @@ func parseRuleCookie(at string, fr fileRule, rule *Rule, p *Profile) error {
 
 	if len(rule.Tags) > 0 {
 		if rule.Cookie == "" {
-			return fmt.Errorf("%s: tags need cookie: which one", at)
+			return fmt.Errorf("%s: %s need cookie: which one", at, key)
 		}
 
 		if rule.On == StateAbsent || rule.On == StateInvalid {
-			return fmt.Errorf("%s: tags never match on %s -- such a cookie carries no tag", at, rule.On)
+			return fmt.Errorf("%s: %s never match on %s -- such a cookie carries no tag", at, key, rule.On)
 		}
+	}
+
+	if err := parseListed(at, fr.Listed, rule); err != nil {
+		return err
 	}
 
 	if rule.On == "" {
@@ -581,6 +629,44 @@ func parseRuleCookie(at string, fr fileRule, rule *Rule, p *Profile) error {
 		return fmt.Errorf("%s: on %s needs renew_after on cookie %q",
 			at, StateExpired, c.Name)
 	}
+
+	return nil
+}
+
+// parseListed reads the list check of a rule: the value of the rule's cookie in a dynamic list, or
+// not in it. The controller prints hash: md5 for a list with hashed content.
+func parseListed(at string, fl *fileListed, rule *Rule) error {
+	if fl == nil {
+		return nil
+	}
+
+	l := &ListCheck{List: strings.TrimSpace(fl.List)}
+
+	if !counterRe.MatchString(l.List) {
+		return fmt.Errorf("%s: listed.list %q is not a dataset name", at, l.List)
+	}
+
+	switch strings.TrimSpace(fl.Op) {
+	case "", "in":
+	case "not_in", "not in":
+		l.Not = true
+	default:
+		return fmt.Errorf("%s: listed.op must be in or not_in, got %q", at, fl.Op)
+	}
+
+	switch strings.TrimSpace(fl.Hash) {
+	case "":
+	case "md5":
+		l.MD5 = true
+	default:
+		return fmt.Errorf("%s: listed.hash must be md5 or empty, got %q", at, fl.Hash)
+	}
+
+	if rule.Cookie == "" {
+		return fmt.Errorf("%s: listed needs cookie: whose value to look up", at)
+	}
+
+	rule.Listed = l
 
 	return nil
 }
@@ -995,7 +1081,8 @@ func parseOverloadRule(at string, fr fileRule, rule Rule, p *Profile) (Rule, err
 	if strings.TrimSpace(fr.Match.PathPrefix) != "" || len(fr.Match.Suffixes) > 0 ||
 		fr.Match.Static || len(fr.Match.Methods) > 0 ||
 		strings.TrimSpace(fr.Phase) != "" || len(fr.Status) > 0 ||
-		strings.TrimSpace(fr.Cookie) != "" || len(fr.Tags) > 0 ||
+		strings.TrimSpace(fr.Cookie) != "" || len(fr.Tags) > 0 || len(fr.NotTags) > 0 ||
+		fr.Listed != nil ||
 		strings.TrimSpace(fr.Issue) != "" ||
 		strings.TrimSpace(fr.Drop) != "" || strings.TrimSpace(fr.If) != "" ||
 		strings.TrimSpace(fr.Unless) != "" {

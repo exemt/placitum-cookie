@@ -95,9 +95,15 @@ rules:
 
   - name: from-google    # the label of the presented cookie is one of these
     cookie: waf_src
-    tags: [google]
+    tags: [google]         # not_tags: none of these
     actions:
       - { do: mark, marker: "src:{tag}" }
+
+  - name: revoked        # the value of the presented cookie is in a dynamic list
+    on: present
+    cookie: waf_src
+    listed: { list: revoked, op: in }   # op: in | not_in; hash: md5 for a hashed list
+    drop: waf_src
 
   - name: logout
     match: { path_prefix: "/logout" }
@@ -124,10 +130,16 @@ of the presented cookie is one of those named. Only a cookie that exists has a l
 `expired`), so such a rule does not load with `on: absent` or `on: invalid`. The client chooses the
 label of an unsigned cookie, so decide by labels only with `sign: hmac`.
 
-A rule is narrowed only by what it holds itself: `on` and `tags`, `phase`, `status` (response codes,
-with `phase: response`) and `match` (`path_prefix`, `methods`, `suffixes`, `static`). A cookie profile
-has no conditions: a profile with `conditions`, `if` or `unless` does not load, because dropping them
-quietly would widen the rules.
+`listed` looks the value the client presented up in a dynamic list: the whole value, the same one a
+`write: cookie` puts there. The inspector mirrors such lists over the keeper protocol from the
+internal Redis; with `hash: md5` it hashes the value before the lookup. No cookie, or a list the mirror
+has not received yet, make `in` false and `not_in` true: missing data never turns into a match, and
+the `kind=inspector` event notes such a list under `notes`.
+
+A rule is narrowed only by what it holds itself: `on`, `tags` or `not_tags`, `listed`, `phase`,
+`status` (response codes, with `phase: response`) and `match` (`path_prefix`, `methods`, `suffixes`,
+`static`). A cookie profile has no conditions: a profile with `conditions`, `if` or `unless` does not
+load, because dropping them quietly would widen the rules.
 
 Rules accumulate: every matching rule fires, and actions add up in row order. The cookie itself is
 not decided by order: **dropping beats issuing**, so a logout rule never loses to a landing-page rule

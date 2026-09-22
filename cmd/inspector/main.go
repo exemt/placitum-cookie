@@ -16,6 +16,7 @@ import (
 	"github.com/exemt/placitum-cookie/internal/body"
 	"github.com/exemt/placitum-cookie/internal/config"
 	"github.com/exemt/placitum-cookie/internal/desired"
+	"github.com/exemt/placitum-cookie/internal/livelist"
 	"github.com/exemt/placitum-cookie/internal/policy"
 	"github.com/exemt/placitum-cookie/internal/queue"
 	"github.com/exemt/placitum-shared/dataset"
@@ -116,6 +117,29 @@ func run() error {
 
 	defer closeStore()
 
+	config.LogInternalRedis(log, cfg.InternalURL, cfg.InternalFrom)
+
+	var sets livelist.Blobs
+
+	if cfg.InternalURL != "" {
+		opened, err := livelist.OpenBlobs(cfg.InternalURL)
+		if err != nil {
+			return err
+		}
+
+		defer opened.Close()
+		sets = opened
+	}
+
+	mirror := livelist.New(nc, sets, log)
+	defer mirror.Close()
+
+	store.OnLoad(func(snap *policy.Snapshot) {
+		for _, name := range snap.Datasets() {
+			mirror.Ensure(name)
+		}
+	})
+
 	var resolver *netinfo.Resolver
 
 	if cfg.GeoAddr != "" {
@@ -144,7 +168,7 @@ func run() error {
 	}
 
 	h := &handler{cfg: cfg, log: log, nc: nc,
-		audit: auditSink, store: store, loader: loader,
+		audit: auditSink, store: store, loader: loader, mirror: mirror,
 		lists: dataset.NewBackground(nc, cfg.Name, log), resolver: resolver, secret: cfg.Secret}
 
 	pool := queue.New(cfg.Workers, cfg.QueueDepth, cfg.ReserveMS, cfg.MinBudgetMS,

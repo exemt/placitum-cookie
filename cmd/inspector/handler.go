@@ -13,6 +13,7 @@ import (
 	"github.com/exemt/placitum-cookie/internal/audit"
 	"github.com/exemt/placitum-cookie/internal/body"
 	"github.com/exemt/placitum-cookie/internal/config"
+	"github.com/exemt/placitum-cookie/internal/livelist"
 	"github.com/exemt/placitum-cookie/internal/policy"
 	"github.com/exemt/placitum-cookie/internal/protocol"
 	"github.com/exemt/placitum-cookie/internal/queue"
@@ -43,6 +44,7 @@ type handler struct {
 	store    *policy.Store
 	pool     *queue.Pool
 	loader   *body.Loader
+	mirror   *livelist.Mirror
 	lists    *dataset.Publisher
 	resolver *netinfo.Resolver
 	secret   []byte
@@ -151,6 +153,11 @@ func (h *handler) inspect(req *protocol.Request, fill int, budget time.Duration)
 		URI:    req.HTTP.URI,
 		States: states,
 		Tags:   tagsOf(values),
+		Values: rawOf(values),
+	}
+
+	if h.mirror != nil {
+		target.Sets = h.mirror
 	}
 
 	if req.Response != nil {
@@ -167,6 +174,10 @@ func (h *handler) inspect(req *protocol.Request, fill int, budget time.Duration)
 	}
 
 	engine["rules"] = out.Rules
+
+	if len(out.Notes) > 0 {
+		engine["notes"] = out.Notes
+	}
 
 	if src.Fault {
 		h.log.Warn("store failed", "rid", req.RID, "profile", p.Name, "detail", src.Why)
@@ -399,6 +410,16 @@ func tagsOf(values map[string]seen) map[string]string {
 
 	for name, v := range values {
 		out[name] = v.Tag
+	}
+
+	return out
+}
+
+func rawOf(values map[string]seen) map[string]string {
+	out := make(map[string]string, len(values))
+
+	for name, v := range values {
+		out[name] = v.Value
 	}
 
 	return out

@@ -32,6 +32,7 @@ type Store struct {
 	print   string
 	log     *slog.Logger
 	current atomic.Pointer[Snapshot]
+	onLoad  atomic.Pointer[func(*Snapshot)]
 }
 
 func NewStore(dir string, log *slog.Logger) (*Store, error) {
@@ -50,8 +51,34 @@ func NewStore(dir string, log *slog.Logger) (*Store, error) {
 
 func (s *Store) Current() *Snapshot { return s.current.Load() }
 
+func (s *Store) OnLoad(fn func(*Snapshot)) {
+	s.onLoad.Store(&fn)
+	fn(s.Current())
+}
+
+func (s *Snapshot) Datasets() []string {
+	seen := map[string]bool{}
+
+	var out []string
+
+	for _, name := range s.Names() {
+		for _, ds := range s.profiles[name].Datasets() {
+			if !seen[ds] {
+				seen[ds] = true
+				out = append(out, ds)
+			}
+		}
+	}
+
+	return out
+}
+
 func (s *Store) swap(snap *Snapshot) {
 	s.current.Store(snap)
+
+	if fn := s.onLoad.Load(); fn != nil {
+		(*fn)(snap)
+	}
 }
 
 func (s *Store) Dir() string {
