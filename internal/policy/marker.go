@@ -8,12 +8,10 @@ import (
 // A marker is a string with slots in braces, filled from the cookies of the request:
 //
 //	{value}   the value of the rule's cookie ({tag} is its old name)
-//	{cookie}  the whole string of the rule's cookie: value, time and signature
 //	{name}    the name of the rule's cookie
 //	{<name>}  the value of any cookie of the profile by its name: client_{uid}_{value}
 //
-// The slots of the rule's cookie win over a cookie that happens to be named value, cookie, name or
-// tag.
+// The slots of the rule's cookie win over a cookie that happens to be named value, name or tag.
 
 // Seen is what a request knows of a cookie: the string the client carries (or was just issued) and
 // its value.
@@ -23,7 +21,7 @@ type Seen struct {
 }
 
 func ownSlot(slot string) bool {
-	return slot == "value" || slot == "tag" || slot == "cookie" || slot == "name"
+	return slot == "value" || slot == "tag" || slot == "name"
 }
 
 // CheckMarkerSlots refuses a marker whose slots cannot be filled: a brace without its pair, a name
@@ -67,7 +65,7 @@ func CheckMarkerSlots(marker, cookie string, valued bool, p *Profile) error {
 			}
 		default:
 			if _, ok := p.Cookie(slot); !ok {
-				return fmt.Errorf("marker %q: {%s} is not a cookie of the profile -- {value}, {cookie}, {name} or a cookie name",
+				return fmt.Errorf("marker %q: {%s} is not a cookie of the profile -- {value}, {name} or a cookie name",
 					marker, slot)
 			}
 		}
@@ -106,8 +104,6 @@ func FillMarker(marker, cookie string, seen map[string]Seen) (out string, ok boo
 		switch slot {
 		case "value", "tag":
 			v = seen[cookie].Value
-		case "cookie":
-			v = seen[cookie].Raw
 		case "name":
 			v = cookie
 		default:
