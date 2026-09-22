@@ -61,10 +61,10 @@ func subjects(ctx context.Context, geo geoWriter, log *slog.Logger, rid, addr st
 
 	// write: value puts the value of the cookie, write: cookie the whole string the client carries.
 	if w.Subject == policy.WriteValue || w.Subject == policy.WriteCookie {
-		value := cookies[w.Cookie].Value
+		value := cookies[w.Cookie].Raw
 
 		if w.Subject == policy.WriteValue {
-			value = cookies[w.Cookie].Tag
+			value = cookies[w.Cookie].Value
 		}
 
 		if value == "" {

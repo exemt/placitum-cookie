@@ -510,6 +510,10 @@ func parseRule(at string, index int, fr fileRule, p *Profile) (Rule, error) {
 			return rule, err
 		}
 
+		if err := CheckMarkerSlots(action.Marker, rule.Cookie, p); err != nil {
+			return rule, fmt.Errorf("%s: %w", where, err)
+		}
+
 		rule.Actions = append(rule.Actions, Ask{Action: action, Cookie: rule.Cookie})
 	}
 
@@ -1139,6 +1143,10 @@ func parseOverloadRule(at string, fr fileRule, rule Rule, p *Profile) (Rule, err
 		action, err := parseAction(where, fa)
 		if err != nil {
 			return rule, err
+		}
+
+		if err := CheckMarkerSlots(action.Marker, "", p); err != nil {
+			return rule, fmt.Errorf("%s: %w", where, err)
 		}
 
 		rule.Actions = append(rule.Actions, Ask{Action: action})

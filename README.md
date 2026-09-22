@@ -84,7 +84,7 @@ rules:
     issue: waf_src       # operation: issue
     actions:
       - do: mark
-        marker: "src:{value}" # substitutions: {value}, {cookie} (the whole string), {name}
+        marker: "src:{value}" # slots: {value}, {cookie} (the whole string), {name}, {<cookie name>}
       - list: ads_clients     # write to a live set
         write: cookie         # value | cookie | addr | net | net_all | asn
         ttl: 30d
@@ -181,6 +181,14 @@ a cookie under `no_value`. Rules compare the value (`tags`, `listed`), markers g
 underscore, and the value is cut at `max_len`. With both a value and a number the value is the part
 before `~`. The whole string, with the time and the signature, is the `{cookie}` of a marker and what
 `write: cookie` puts into a list.
+
+A marker is a string with slots in braces, filled from the cookies of the request: `{value}` is
+the value of the rule's cookie, `{cookie}` its whole string, `{name}` its name, and `{<name>}` the
+value of any cookie of the profile, so `client_{uid}_{value}` becomes `client_a1b2c3_google`. The
+rest of the string stays as it is. A slot of a cookie the request does not carry drops the whole
+marker, and the `kind=inspector` event lists it under `markers_dropped`. A profile whose marker names
+a cookie it does not declare, or leaves a brace unpaired, does not load; an overload rule has no cookie
+of its own and names one.
 
 The key comes from `WAF_COOKIE_SECRET_FILE` or `WAF_COOKIE_SECRET`, at least 16 bytes, the same for
 every copy. It is derived per cookie name, so the signature of one cookie does not fit another.

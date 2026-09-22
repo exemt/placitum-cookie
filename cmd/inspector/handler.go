@@ -228,9 +228,10 @@ func (h *handler) inspect(req *protocol.Request, fill int, budget time.Duration)
 	actions, dropped := expand(out.Actions, values)
 	reply.Actions = actions
 
+	// A marker whose cookie has no value in this request is not set: an ordinary case, not a fault.
 	if len(dropped) > 0 {
-		h.log.Warn("marker expands to nothing", "rid", req.RID, "profile", p.Name,
-			"cookies", dropped)
+		h.log.Debug("marker not set: a cookie has no value", "rid", req.RID, "profile", p.Name,
+			"markers", dropped)
 
 		engine["markers_dropped"] = dropped
 	}
@@ -252,10 +253,8 @@ func (h *handler) inspect(req *protocol.Request, fill int, budget time.Duration)
 	return reply, det()
 }
 
-type seen struct {
-	Value string
-	Tag   string
-}
+// seen is what the request knows of a cookie: the string (Raw) and its value.
+type seen = policy.Seen
 
 func (h *handler) states(p *policy.Profile, src *source, now time.Time) (
 	map[string]string, map[string]seen, error) {
@@ -289,7 +288,7 @@ func (h *handler) states(p *policy.Profile, src *source, now time.Time) (
 		states[c.Name] = state
 
 		if state == policy.StatePresent || state == policy.StateExpired {
-			values[c.Name] = seen{Value: raw, Tag: tag}
+			values[c.Name] = seen{Raw: raw, Value: tag}
 		}
 	}
 
@@ -343,7 +342,7 @@ func (h *handler) apply(out *policy.Outcome, values map[string]seen, now time.Ti
 		}
 
 		cookies = append(cookies, item)
-		values[c.Name] = seen{Value: value, Tag: tag}
+		values[c.Name] = seen{Raw: value, Value: tag}
 	}
 
 	for _, c := range out.Drop {
@@ -380,22 +379,14 @@ func expand(asks []policy.Ask, values map[string]seen) ([]protocol.Action, []str
 		action := ask.Action
 
 		if action.Marker != "" && strings.ContainsRune(action.Marker, '{') {
-			v := values[ask.Cookie]
-
-			// {value} is the value the cookie was issued with, {cookie} the whole string the
-			// client carries (value, number, time and signature), {name} the cookie name.
-			// {tag} is the old name of {value} and stays for profiles written with it.
-			marker := strings.NewReplacer(
-				"{cookie}", v.Value,
-				"{value}", v.Tag,
-				"{tag}", v.Tag,
-				"{name}", ask.Cookie,
-			).Replace(action.Marker)
+			// Slots are filled from the cookies of the request (policy.FillMarker); a slot of a
+			// cookie with no value drops the marker.
+			marker, ok := policy.FillMarker(action.Marker, ask.Cookie, values)
 
 			marker = strings.TrimSpace(marker)
 
-			if marker == "" {
-				dropped = append(dropped, ask.Cookie)
+			if !ok || marker == "" {
+				dropped = append(dropped, action.Marker)
 
 				continue
 			}
@@ -417,7 +408,7 @@ func tagsOf(values map[string]seen) map[string]string {
 	out := make(map[string]string, len(values))
 
 	for name, v := range values {
-		out[name] = v.Tag
+		out[name] = v.Value
 	}
 
 	return out
