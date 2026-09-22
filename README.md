@@ -188,7 +188,8 @@ value of any cookie of the profile, so `client_{uid}_{value}` becomes `client_a1
 rest of the string stays as it is. A slot of a cookie the request does not carry drops the whole
 marker, and the `kind=inspector` event lists it under `markers_dropped`. A profile whose marker names
 a cookie it does not declare, or leaves a brace unpaired, does not load; an overload rule has no cookie
-of its own and names one.
+of its own and names one. On `absent` and `invalid` the rule's cookie has no value, so `{value}` and
+`{cookie}` are refused there, unless the rule issues the cookie itself.
 
 The key comes from `WAF_COOKIE_SECRET_FILE` or `WAF_COOKIE_SECRET`, at least 16 bytes, the same for
 every copy. It is derived per cookie name, so the signature of one cookie does not fit another.

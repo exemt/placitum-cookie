@@ -27,8 +27,10 @@ func ownSlot(slot string) bool {
 }
 
 // CheckMarkerSlots refuses a marker whose slots cannot be filled: a brace without its pair, a name
-// that is not a cookie of the profile, or a slot of the rule's cookie in a rule without one.
-func CheckMarkerSlots(marker, cookie string, p *Profile) error {
+// that is not a cookie of the profile, a slot of the rule's cookie in a rule without one, or in a
+// rule where that cookie has no value (valued is false: on absent or invalid, unless the rule
+// issues it).
+func CheckMarkerSlots(marker, cookie string, valued bool, p *Profile) error {
 	rest := marker
 
 	for {
@@ -56,6 +58,11 @@ func CheckMarkerSlots(marker, cookie string, p *Profile) error {
 		case ownSlot(slot):
 			if cookie == "" {
 				return fmt.Errorf("marker %q: {%s} speaks of the rule's cookie, and the rule has none -- name the cookie: {<name>}",
+					marker, slot)
+			}
+
+			if !valued && slot != "name" {
+				return fmt.Errorf("marker %q: {%s} -- here the rule's cookie has no value; keep the marker a plain string or name another cookie",
 					marker, slot)
 			}
 		default:

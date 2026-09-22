@@ -510,7 +510,10 @@ func parseRule(at string, index int, fr fileRule, p *Profile) (Rule, error) {
 			return rule, err
 		}
 
-		if err := CheckMarkerSlots(action.Marker, rule.Cookie, p); err != nil {
+		// On absent and invalid the rule's cookie has no value, unless the rule issues it itself.
+		valued := (rule.On != StateAbsent && rule.On != StateInvalid) || rule.Issue == rule.Cookie
+
+		if err := CheckMarkerSlots(action.Marker, rule.Cookie, valued, p); err != nil {
 			return rule, fmt.Errorf("%s: %w", where, err)
 		}
 
@@ -1145,7 +1148,7 @@ func parseOverloadRule(at string, fr fileRule, rule Rule, p *Profile) (Rule, err
 			return rule, err
 		}
 
-		if err := CheckMarkerSlots(action.Marker, "", p); err != nil {
+		if err := CheckMarkerSlots(action.Marker, "", false, p); err != nil {
 			return rule, fmt.Errorf("%s: %w", where, err)
 		}
 
