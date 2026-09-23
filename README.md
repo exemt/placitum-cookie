@@ -3,8 +3,8 @@
 English · [Русский](README.ru.md)
 
 Placitum cookie inspector. It issues a signed cookie to the client, drops it, writes its value to a
-live set and tells the neighbours about it. It checks nothing and blocks nobody: other parts decide
-by the issued cookie, such as the local layer on the node, neighbour actions or the counter.
+live set and tells the neighbours about it. The local layer on the node, neighbour actions and the
+counter then decide by that cookie.
 
 Ad traffic shows it best. A client arrives by a link with `utm_source=yandex-direct`; the inspector
 gives them a signed cookie whose value is the source, writes the cookie to a live set and marks the
@@ -19,20 +19,23 @@ module ──► waf.req.cookie ──► cookie ──► allow + Set-Cookie
                                  └── requests to neighbours: marker, score
 ```
 
-## What to know
+## How it answers
 
-- **Its only verdict is `allow`.** It moves the route score with a `score` request that the module
-  carries out. Its own failures are `verdict: error` with a `COOKIE_*` code, not a quiet `allow`:
-  an `allow` would hide a cookie that was never issued.
-- **It works in both phases.** In the request phase the cookie is set before the upstream and the
-  application sees it too. In the response phase the status is known, so a client who got 404 need
-  not get a cookie. Request headers in the response phase come from the request snapshot: `Cookie`
-  is sent by the client, not by the upstream.
-- **Signed by default.** A cookie that the installation acts upon can be typed by hand in a browser
-  console if it is not signed. A forged value is the `invalid` state, not "no cookie".
-- **The route must capture headers.** Without them there is nothing to read the cookie from, and
-  the answer is `error` with `COOKIE_HEADERS_UNAVAILABLE`. Treating that as "no cookie" would give
-  every client a new cookie on every request.
+The verdict is always `allow`; score on the route moves through a `score` request that the module
+carries out. When the inspector itself fails, it answers `verdict: error` with a `COOKIE_*` code, so
+a cookie that was never issued shows up in the audit.
+
+It works in both phases. In the request phase the cookie is set before the upstream, and the
+application sees it too. In the response phase the status is known, so a client who got 404 need not
+get a cookie. Request headers in the response phase come from the request snapshot: `Cookie` is sent
+by the client.
+
+Cookies are signed by default. An unsigned cookie that the installation acts upon can be typed by
+hand in a browser console; a forged value lands in the `invalid` state.
+
+The route must capture headers. Without them there is nothing to read the cookie from, and the
+answer is `error` with `COOKIE_HEADERS_UNAVAILABLE`. If that counted as a missing cookie, every
+client would get a new cookie on every request.
 
 ## Route
 
@@ -162,7 +165,7 @@ A rule is narrowed only by what it holds itself: `on`, `tags` or `not_tags`, `li
 load, because dropping them quietly would widen the rules.
 
 Rules accumulate: every matching rule fires, and actions add up in row order. The cookie itself is
-not decided by order: **dropping beats issuing**, so a logout rule never loses to a landing-page rule
+not decided by order: dropping beats issuing, so a logout rule never loses to a landing-page rule
 placed below it.
 
 ### Value and signature
